@@ -63,10 +63,7 @@ function HomeContent() {
       <div className="container mx-auto max-w-6xl px-4 py-12">
         {/* Hero Section */}
         <div className="text-center mb-16">
-          <h1 className="text-4xl md:text-5xl font-bold mb-4 bg-gradient-to-r from-blue-600 to-blue-400 bg-clip-text text-transparent">
-            NEDA Pay Merchant Portal
-          </h1>
-          <p className="text-xl text-gray-600 dark:text-gray-300 max-w-3xl mx-auto">
+          <p className="text-xl md:text-2xl font-bold text-slate-800 dark:text-white max-w-3xl mx-auto">
             Accept local stablecoins for your business, manage payments, and swap between stablecoins instantly with ease
           </p>
           

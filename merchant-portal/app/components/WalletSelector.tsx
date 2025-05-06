@@ -8,28 +8,14 @@ import { useAccount, useConnect, useDisconnect } from 'wagmi';
 import { metaMask, coinbaseWallet, walletConnect } from 'wagmi/connectors';
 import { useRouter } from 'next/navigation';
 import { base } from 'wagmi/chains';
-import { useName } from '@coinbase/onchainkit/identity';
+import { Name } from '@coinbase/onchainkit/identity';
 import { base as baseChain } from 'viem/chains';
-import { getBaseName } from '../utils/getBaseName';
+import BaseNameTest from './BaseNameTest';
 
-// --- ENS-style fallback ---
-// (no-op here, logic will be in component)
-
-// Custom hook to resolve Base Name
-function useBaseName(address: string | undefined) {
-  const [baseName, setBaseName] = useState<string | null>(null);
-  useEffect(() => {
-    if (!address) {
-      setBaseName(null);
-      return;
-    }
-    let cancelled = false;
-    getBaseName(address).then((name) => {
-      if (!cancelled) setBaseName(name);
-    });
-    return () => { cancelled = true; };
-  }, [address]);
-  return baseName;
+// Format address for display when no name is available
+function formatAddress(address: string | undefined): string {
+  if (!address || typeof address !== 'string' || !address.startsWith('0x') || address.length < 10) return '';
+  return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
 }
 
 // Utility to detect mobile browsers
@@ -52,14 +38,10 @@ export default function WalletSelector() {
   const { connect } = useConnect();
   const { disconnect } = useDisconnect();
 
-    // Resolve ENS Name using OnchainKit (for .eth)
+    // Helper function to ensure address is properly formatted for the Name component
   function isHexAddress(addr: string | undefined): addr is `0x${string}` {
-  return typeof addr === 'string' && addr.startsWith('0x') && addr.length === 42;
-}
-const nameResult = useName({ address: isHexAddress(address) ? address : undefined, chain: baseChain });
-const ensName = isHexAddress(address) ? nameResult.data : undefined;
-  // Resolve Base Name using custom hook (for .base)
-  const baseName = useBaseName(address);
+    return typeof addr === 'string' && addr.startsWith('0x') && addr.length === 42;
+  }
 
   
   // Format address for display
@@ -119,16 +101,13 @@ const ensName = isHexAddress(address) ? nameResult.data : undefined;
       // Immediately dispatch a custom event so dashboard can react instantly
       window.dispatchEvent(new CustomEvent('walletConnected', { detail: { address } }));
       
-      // Redirect to dashboard after successful connection
-      // Use a short timeout to ensure cookie is set before navigation
-      setTimeout(() => {
-        // Only redirect to dashboard if on the homepage/root ('' or '/')
-        let path = window.location.pathname.replace(/\/+$/, ''); // Remove all trailing slashes
-        if (path === '' || path === '/') {
-          console.log('[DEBUG] Redirecting to /dashboard from WalletSelector. Current path:', window.location.pathname);
-          router.push('/dashboard');
-        }
-      }, 500);
+      // Redirect to dashboard immediately after successful connection
+      // Only redirect to dashboard if on the homepage/root ('' or '/')
+      let path = window.location.pathname.replace(/\/+$/, ''); // Remove all trailing slashes
+      if (path === '' || path === '/') {
+        console.log('[DEBUG] Redirecting to /dashboard from WalletSelector. Current path:', window.location.pathname);
+        router.push('/dashboard');
+      }
     } else {
       // Clear wallet connection from localStorage
       localStorage.removeItem('walletConnected');
@@ -286,7 +265,7 @@ const createSmartWallet = async () => {
             e.stopPropagation();
             setShowOptions(!showOptions);
           }}
-          className="flex items-center space-x-2 bg-gray-100 dark:bg-blue-900/30 hover:bg-gray-200 dark:hover:bg-blue-800/40 text-gray-900 dark:text-blue-300 px-4 py-2 rounded-lg transition-all duration-200"
+          className="flex items-center space-x-2 bg-white/80 dark:bg-slate-900/60 hover:bg-blue-50 dark:hover:bg-blue-800 text-slate-800 dark:text-white border-2 border-blue-400 dark:border-blue-300 px-2 sm:px-3 py-1 rounded-lg transition-all duration-200 shadow-sm"
         >
           <div className="w-6 h-6 rounded-full flex items-center justify-center mr-2 bg-blue-100 dark:bg-blue-900">
   {connector?.id === 'coinbaseWallet' || connector?.name === 'Coinbase Wallet' ? (
@@ -304,8 +283,20 @@ const createSmartWallet = async () => {
     </svg>
   )}
 </div>
-          <div className="text-sm font-medium">
-            {baseName || ensName || formatAddress(address)}
+          <div className="text-xs sm:text-sm font-bold">
+            {address ? (
+              <>
+                <Name 
+                  address={address as `0x${string}`} 
+                  chain={baseChain}
+                />
+                <span className="ml-1 text-xs text-gray-500">
+                  ({formatAddress(address)})
+                </span>
+              </>
+            ) : (
+              'Connect Wallet'
+            )}
           </div>
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 ml-1">
             <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
@@ -317,10 +308,10 @@ const createSmartWallet = async () => {
             e.stopPropagation();
             setShowOptions(!showOptions);
           }}
-          className="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition flex items-center"
+          className="bg-white/80 dark:bg-slate-900/60 hover:bg-blue-50 dark:hover:bg-blue-800 text-slate-800 dark:text-white border-2 border-blue-400 dark:border-blue-300 px-2 sm:px-3 py-1 rounded-lg transition-all duration-200 shadow-sm flex items-center"
           disabled={isConnecting}
         >
-          <span>{isConnecting ? 'Connecting...' : 'Connect Wallet'}</span>
+          <span className="text-xs sm:text-sm font-bold">{isConnecting ? 'Connecting...' : 'Connect Wallet'}</span>
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4 ml-1 inline">
             <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
           </svg>
@@ -340,7 +331,16 @@ const createSmartWallet = async () => {
                   <span className="text-xs text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-1 rounded-full">Active</span>
                 </div>
                 <div className="mt-1 text-xs text-gray-600 dark:text-gray-400">
-                  {baseName || ensName || formatAddress(address)}
+                  {address ? (
+                    <>
+                      <Name 
+                        address={address as `0x${string}`} 
+                        chain={baseChain}
+                      />
+                    </>
+                  ) : (
+                    'Not connected'
+                  )}
                 </div>
               </div>
               
@@ -363,26 +363,26 @@ const createSmartWallet = async () => {
             </>
           ) : (
             <>
-              <div className="p-3 border-b border-gray-200 dark:border-gray-700">
-                <h3 className="text-sm font-medium text-gray-900 dark:text-gray-300">Select Wallet</h3>
+              <div className="p-2 border-b border-gray-200 dark:border-gray-700">
+                <h3 className="text-xs sm:text-sm font-medium text-gray-900 dark:text-gray-300">Select Wallet</h3>
               </div>
               <div className="p-2 space-y-2">
                 {/* WalletConnect Option */}
                 <button
                   onClick={handleConnectWalletConnect}
                   disabled={isConnecting}
-                  className="w-full flex items-center space-x-3 p-3 rounded-lg hover:bg-green-100 dark:hover:bg-green-700 transition-colors text-left"
+                  className="w-full flex items-center space-x-2 p-2 rounded-lg hover:bg-green-100 dark:hover:bg-green-700 transition-colors text-left"
                 >
-                  <div className="w-8 h-8 flex-shrink-0 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
+                  <div className="w-6 h-6 flex-shrink-0 rounded-full bg-green-100 dark:bg-green-900 flex items-center justify-center">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <path d="M12 2C6.477 2 2 6.477 2 12s4.477 10 10 10 10-4.477 10-10S17.523 2 12 2zm0 18c-4.418 0-8-3.582-8-8s3.582-8 8-8 8 3.582 8 8-3.582 8-8 8zm3.536-10.95a1 1 0 0 1 1.415 1.415l-4.95 4.95a1 1 0 0 1-1.415 0l-2.121-2.122a1 1 0 1 1 1.415-1.415l1.414 1.415 4.242-4.243z" fill="#3396FF"/>
                     </svg>
                   </div>
                   <div>
-                    <div className="font-medium text-white">WalletConnect</div>
-<div className="text-xs text-white/80">
-  {isConnecting ? 'Connecting...' : 'Connect with WalletConnect (Mobile/Desktop)'}
-</div>
+                    <div className="text-xs sm:text-sm font-medium text-gray-900 dark:text-gray-300">WalletConnect</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400">
+                      Connect with WalletConnect
+                    </div>
                   </div>
                 </button>
 
@@ -391,18 +391,18 @@ const createSmartWallet = async () => {
                   <button
                     onClick={handleConnectCoinbase}
                     disabled={isConnecting}
-                    className="w-full flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left"
+                    className="w-full flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left"
                   >
-                    <div className="w-8 h-8 flex-shrink-0 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
-                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <div className="w-6 h-6 flex-shrink-0 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <path d="M12 24C18.6274 24 24 18.6274 24 12C24 5.37258 18.6274 0 12 0C5.37258 0 0 5.37258 0 12C0 18.6274 5.37258 24 12 24Z" fill="#0052FF"/>
                         <path d="M12.0002 4.80005C8.0002 4.80005 4.8002 8.00005 4.8002 12C4.8002 16 8.0002 19.2 12.0002 19.2C16.0002 19.2 19.2002 16 19.2002 12C19.2002 8.00005 16.0002 4.80005 12.0002 4.80005ZM9.6002 14.4C8.8002 14.4 8.0002 13.6 8.0002 12.8C8.0002 12 8.8002 11.2 9.6002 11.2C10.4002 11.2 11.2002 12 11.2002 12.8C11.2002 13.6 10.4002 14.4 9.6002 14.4ZM14.4002 14.4C13.6002 14.4 12.8002 13.6 12.8002 12.8C12.8002 12 13.6002 11.2 14.4002 11.2C15.2002 11.2 16.0002 12 16.0002 12.8C16.0002 13.6 15.2002 14.4 14.4002 14.4Z" fill="white"/>
                       </svg>
                     </div>
                     <div>
-                      <div className="font-medium text-white">Coinbase Wallet</div>
+                      <div className="text-xs sm:text-sm font-medium text-white">Coinbase Wallet</div>
 <div className="text-xs text-white/80">
-  {isConnecting ? 'Connecting...' : 'Connect using Coinbase Wallet'}
+  {isConnecting ? 'Connecting...' : 'Connect'}
 </div>
                     </div>
                   </button>
@@ -412,9 +412,9 @@ const createSmartWallet = async () => {
                 <button
                   onClick={handleConnectMetaMask}
                   disabled={isConnecting}
-                  className="w-full flex items-center space-x-3 p-3 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left"
+                  className="w-full flex items-center space-x-2 p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-left"
                 >
-                  <div className="w-8 h-8 flex-shrink-0 rounded-full bg-orange-100 dark:bg-orange-900/50 flex items-center justify-center">
+                  <div className="w-6 h-6 flex-shrink-0 rounded-full bg-orange-100 dark:bg-orange-900/50 flex items-center justify-center">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <path d="M21.3622 2L13.3622 8.4L14.9622 4.56L21.3622 2Z" fill="#E17726"/>
                       <path d="M2.63782 2L10.5378 8.46L9.03782 4.56L2.63782 2Z" fill="#E27625"/>
@@ -423,9 +423,9 @@ const createSmartWallet = async () => {
                     </svg>
                   </div>
                   <div>
-                    <div className="font-medium text-white">MetaMask</div>
+                    <div className="text-xs sm:text-sm font-medium text-white">MetaMask</div>
 <div className="text-xs text-white/80">
-  {isConnecting ? 'Connecting...' : 'Connect using MetaMask'}
+  {isConnecting ? 'Connecting...' : 'Connect'}
 </div>
                   </div>
                 </button>

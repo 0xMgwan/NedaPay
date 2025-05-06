@@ -7,15 +7,32 @@ import { base } from 'viem/chains';
  */
 export async function getBaseName(address: string): Promise<string | null> {
   try {
-    console.log('[BaseName DEBUG] Calling getName with:', { address, base });
-    const result = await getName({ address, chain: base });
-    console.log('[BaseName DEBUG] getName result:', result);
+    // Ensure address is properly formatted as 0x-prefixed string
+    if (!address || typeof address !== 'string' || !address.startsWith('0x')) {
+      console.error('[BaseName] Invalid address format:', address);
+      return null;
+    }
+
+    // Log the request for debugging
+    console.log('[BaseName] Resolving name for address:', address);
+    
+    // Call the getName function from OnchainKit with the Base chain
+    const result = await getName({ 
+      address: address as `0x${string}`, 
+      chain: base 
+    });
+    
+    // Log the result for debugging
+    console.log('[BaseName] getName result:', result);
+    
+    // Return the result if it's a valid string
     if (result && typeof result === 'string') {
       return result;
     }
+    
     return null;
   } catch (error) {
-    console.error('Error fetching Base Name:', error);
+    console.error('[BaseName] Error fetching Base Name:', error);
     return null;
   }
 }

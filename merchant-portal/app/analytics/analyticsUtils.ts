@@ -29,7 +29,7 @@ export const processBalances = (balanceData: Record<string, string>, networkChai
 
 export async function fetchIncomingPayments(merchantAddress: string) {
   if (!merchantAddress) return [];
-  const provider = new ethers.providers.JsonRpcProvider('https://mainnet.base.org');
+  const provider = new ethers.providers.JsonRpcProvider('https://base-rpc.publicnode.com');
   const ERC20_ABI = [
     "event Transfer(address indexed from, address indexed to, uint256 value)",
     "function decimals() view returns (uint8)",

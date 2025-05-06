@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useAccount } from 'wagmi';
 import { Connector } from 'wagmi';
+import { Name } from '@coinbase/onchainkit/identity';
+import { base } from 'viem/chains';
 import { useRouter } from 'next/navigation';
 import Header from '../components/Header';
 import { Toaster, toast } from 'react-hot-toast';
@@ -262,11 +264,24 @@ function getMultiStablecoinDailyRevenueData(transactions: any[]) {
   });
   const dates = Array.from(dateSet).sort();
 
+  // Check if we're in dark mode
+  const isDarkMode = typeof window !== 'undefined' && 
+                    window.matchMedia && 
+                    window.matchMedia('(prefers-color-scheme: dark)').matches;
+  
+  // Define chart line colors - darker colors for light mode, bright colors for dark mode
+  const lightModeColors = ['#1e40af', '#065f46', '#9a3412', '#5b21b6', '#be185d']; // Dark, saturated colors for light mode
+  const darkModeColors = ['#60a5fa', '#34d399', '#fb923c', '#a78bfa', '#f472b6']; // Bright, vibrant colors for dark mode
+  
   // Prepare a dataset for each stablecoin
-  const datasets = stablecoinSymbols.map(symbol => {
+  const datasets = stablecoinSymbols.map((symbol, index) => {
     // Find the flag from stablecoins
     const coin = stablecoins.find(c => c.baseToken === symbol);
     const flag = coin?.flag || '🌐';
+    
+    // Use bright colors in dark mode, dark colors in light mode
+    const lineColor = isDarkMode ? darkModeColors[index % darkModeColors.length] : lightModeColors[index % lightModeColors.length];
+    
     return {
       label: `${flag} ${symbol}`,
       data: dates.map(date => {
@@ -275,7 +290,8 @@ function getMultiStablecoinDailyRevenueData(transactions: any[]) {
           .filter(tx => tx.currency === symbol && tx.date.startsWith(date))
           .reduce((sum, tx) => sum + (parseFloat((tx.amount || '0').replace(/,/g, '')) || 0), 0);
       }),
-      // borderColor intentionally omitted to fix lint error
+      borderColor: lineColor,
+      backgroundColor: lineColor,
       fill: false,
       tension: 0.2,
     };
@@ -391,7 +407,7 @@ export default function MerchantDashboard() {
       try {
         const { getSmartWalletAddress } = await import('../utils/smartWallet');
         const { ethers } = await import('ethers');
-        const provider = new ethers.providers.JsonRpcProvider('https://mainnet.base.org');
+        const provider = new ethers.providers.JsonRpcProvider('https://base-rpc.publicnode.com');
         const salt = 0; // Use 0 unless you support multiple smart wallets per EOA
         const realSmartWallet = await getSmartWalletAddress(address, salt, provider);
         setSmartWalletAddress(realSmartWallet);
@@ -463,7 +479,7 @@ export default function MerchantDashboard() {
     (async () => {
       const ethersLib = (await import('ethers')).ethers;
       // Use public Base Mainnet RPC
-      const provider = new ethersLib.providers.JsonRpcProvider('https://mainnet.base.org');
+      const provider = new ethersLib.providers.JsonRpcProvider('https://base-rpc.publicnode.com');
       const ERC20_ABI = [
         "event Transfer(address indexed from, address indexed to, uint256 value)",
         "function decimals() view returns (uint8)",
@@ -744,7 +760,15 @@ const fetchRealBalances = async (walletAddress: string) => {
                       if (hour < 12) return '☀️ Good Morning';
                       if (hour < 18) return '🌤️ Good Afternoon';
                       return '🌙 Good Evening';
-                    })()} {selectedWalletAddress ? `${selectedWalletAddress.substring(0, 6)}...` : 'Merchant'}!
+                    })()} {selectedWalletAddress ? (
+                      <span className="inline-flex items-center">
+                        <Name 
+                          address={selectedWalletAddress as `0x${string}`} 
+                          chain={base}
+                        />
+                        !
+                      </span>
+                    ) : 'Merchant'}!
                   </h2>
                   <p className="text-white text-opacity-90 animate-fadeIn animation-delay-200">
                     {(() => {
@@ -1011,14 +1035,17 @@ const fetchRealBalances = async (walletAddress: string) => {
     plugins: {
       legend: {
         labels: {
-  color:
-    typeof window !== 'undefined' &&
-    window.matchMedia &&
-    window.matchMedia('(prefers-color-scheme: dark)').matches
-      ? '#fff'
-      : '#222',
-  usePointStyle: false, // <--- This disables the colored boxes entirely
-  generateLabels: (chart) => {
+          color:
+            typeof window !== 'undefined' &&
+            window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches
+              ? '#ffffff'
+              : '#222222',
+          usePointStyle: true, // Enable colored boxes to match line colors
+          boxWidth: 15,
+          boxHeight: 15,
+          padding: 15,
+          generateLabels: (chart) => {
             // Custom legend: show flag and currency code
             const { datasets } = chart.data;
             if (!datasets || !datasets.length) return [];

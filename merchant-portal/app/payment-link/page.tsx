@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Header from '../components/Header';
 import { useAccount } from 'wagmi';
 import { stablecoins } from '../data/stablecoins';
+import { ethers } from 'ethers';
 
 
 export default function PaymentLinkPage() {
@@ -43,6 +44,148 @@ export default function PaymentLinkPage() {
   });
 
 
+  // Function to check payment status using blockchain API
+  const checkPaymentStatus = useCallback(async () => {
+    if (typeof window !== 'undefined') {
+      const merchantAddress = getMerchantAddress();
+      if (!merchantAddress) return;
+      
+      try {
+        // Get current links from state
+        const currentLinks = [...recentLinks];
+        let hasUpdates = false;
+        
+        // Process each payment link
+        for (let i = 0; i < currentLinks.length; i++) {
+          const link = currentLinks[i];
+          if (link.status !== 'Active') continue; // Skip already paid or pending links
+          
+          // Extract payment details from the link
+          const paymentId = link.link.split('?id=')[1];
+          if (!paymentId) continue;
+          
+          // Query blockchain for transactions to the merchant address
+          // Using ethers.js to interact with the blockchain
+          try {
+            // For Base Sepolia testnet
+            const provider = new ethers.providers.JsonRpcProvider('https://sepolia.base.org');
+            
+            // Get recent transactions to the merchant address
+            const blockNumber = await provider.getBlockNumber();
+            const startBlock = Math.max(0, blockNumber - 1000); // Look back ~1000 blocks
+            
+            // For ERC-20 tokens, we need to check token transfer events
+            // This would depend on the specific token contract for each currency
+            const tokenAddress = getTokenAddressForCurrency(link.currency);
+            if (tokenAddress) {
+              const tokenContract = new ethers.Contract(
+                tokenAddress,
+                ['event Transfer(address indexed from, address indexed to, uint256 value)'],
+                provider
+              );
+              
+              // Query for Transfer events to the merchant address
+              const filter = tokenContract.filters.Transfer(null, merchantAddress);
+              const events = await tokenContract.queryFilter(filter, startBlock, 'latest');
+              
+              // Check if any transfer matches our expected amount
+              const expectedAmount = ethers.utils.parseUnits(link.amount, getDecimalsForCurrency(link.currency));
+              
+              for (const event of events) {
+                // Check if this transaction is for our payment
+                // In a real implementation, you would have a more robust way to match payments
+                // For example, including a payment reference in the transaction metadata
+                if (event.args && event.args.value && event.args.value.eq(expectedAmount)) {
+                  // Check if transaction is confirmed
+                  const txReceipt = await provider.getTransactionReceipt(event.transactionHash);
+                  if (txReceipt && txReceipt.confirmations > 1) {
+                    currentLinks[i] = { ...link, status: 'Paid' };
+                    hasUpdates = true;
+                    break;
+                  } else if (txReceipt) {
+                    currentLinks[i] = { ...link, status: 'Pending' };
+                    hasUpdates = true;
+                    break;
+                  }
+                }
+              }
+            } else {
+              // For native token (ETH/BASE), check direct transfers
+              // Note: getHistory is not available in all providers, using alternative approach
+              const blockRange = await Promise.all(
+                Array.from({ length: 5 }, (_, i) => {
+                  const blockNum = blockNumber - i * 200;
+                  return provider.getBlockWithTransactions(blockNum > 0 ? blockNum : 0);
+                })
+              );
+              
+              // Flatten transactions and filter those sent to merchant address
+              const history = blockRange
+                .filter(block => block !== null)
+                .flatMap(block => block.transactions)
+                .filter(tx => tx.to?.toLowerCase() === merchantAddress.toLowerCase());
+              
+              // Check for matching transactions
+              const expectedAmount = ethers.utils.parseEther(link.amount);
+              
+              for (const tx of history) {
+                if (tx.value.eq(expectedAmount)) {
+                  // Check confirmation status
+                  const txReceipt = await provider.getTransactionReceipt(tx.hash);
+                  if (txReceipt && txReceipt.confirmations > 1) {
+                    currentLinks[i] = { ...link, status: 'Paid' };
+                    hasUpdates = true;
+                    break;
+                  } else if (txReceipt) {
+                    currentLinks[i] = { ...link, status: 'Pending' };
+                    hasUpdates = true;
+                    break;
+                  }
+                }
+              }
+            }
+          } catch (error) {
+            console.error(`Error checking payment for link ${paymentId}:`, error);
+            // Continue with other links even if one fails
+          }
+        }
+        
+        // Update state and localStorage if we have changes
+        if (hasUpdates) {
+          setRecentLinks(currentLinks);
+          localStorage.setItem(`recentPaymentLinks_${merchantAddress}`, JSON.stringify(currentLinks));
+        }
+      } catch (error) {
+        console.error('Error checking payment statuses:', error);
+      }
+    }
+  }, [getMerchantAddress, recentLinks]);
+  
+  // Helper function to get token contract address for a currency
+  const getTokenAddressForCurrency = (currency: string): string | null => {
+    // Map currencies to their contract addresses
+    // These would be the actual token contract addresses on the blockchain
+    const tokenAddresses: Record<string, string> = {
+      'TSHC': '0x4200000000000000000000000000000000000006', // Example TSHC token address on Base
+      'cNGN': '0x4200000000000000000000000000000000000007', // Example cNGN token address on Base
+      'IDRX': '0x4200000000000000000000000000000000000008', // Example IDRX token address on Base
+      // Add other currencies as needed
+    };
+    return tokenAddresses[currency] || null;
+  };
+  
+  // Helper function to get decimals for a currency
+  const getDecimalsForCurrency = (currency: string): number => {
+    // Most ERC-20 tokens use 18 decimals, but some might be different
+    const decimals: Record<string, number> = {
+      'TSHC': 18,
+      'cNGN': 18,
+      'IDRX': 18,
+      // Add other currencies as needed
+    };
+    return decimals[currency] || 18;
+  };
+
   // Handle initial page load and cookie setting
   useEffect(() => {
     console.log('Payment Link Page - Loading, isConnected:', isConnected);
@@ -68,6 +211,12 @@ export default function PaymentLinkPage() {
     const handleBeforeUnload = () => {
       console.log('Payment Link Page - Before unload event fired');
     };
+    
+    // Set up interval to periodically check for payment status updates
+    const statusCheckInterval = setInterval(checkPaymentStatus, 5000);
+    
+    // Clean up interval on component unmount
+    return () => clearInterval(statusCheckInterval);
     
     window.addEventListener('beforeunload', handleBeforeUnload);
     
@@ -149,14 +298,14 @@ export default function PaymentLinkPage() {
       <div className="flex-grow">
         <div className="container mx-auto max-w-6xl px-4 py-12">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2 text-slate-800 dark:text-slate-100">
+          <h1 className="text-3xl font-bold mb-2 text-slate-800 dark:text-white">
             Create Payment Link
           </h1>
-          <p className="text-slate-600 dark:text-slate-300 text-base mb-2">
+          <p className="text-slate-600 dark:text-white text-base mb-2">
             Generate a payment link to share with your customers
           </p>
           {isClient && (
-          <div className={`rounded-md px-4 py-2 mt-2 text-sm ${getMerchantAddress() ? 'bg-green-50 text-green-900 border border-green-200' : 'bg-yellow-50 text-yellow-900 border border-yellow-300'}`}>
+          <div className={`rounded-md px-4 py-2 mt-2 text-sm ${getMerchantAddress() ? 'bg-green-50 dark:bg-green-900/30 text-green-900 dark:text-green-100 border border-green-200 dark:border-green-800' : 'bg-yellow-50 dark:bg-yellow-900/30 text-yellow-900 dark:text-yellow-100 border border-yellow-300 dark:border-yellow-800'}`}>
             <strong>Merchant Wallet Address:</strong>
             <span className="ml-2 font-mono break-all">{getMerchantAddress() || 'No wallet connected. Please connect your wallet.'}</span>
           </div>
@@ -166,7 +315,7 @@ export default function PaymentLinkPage() {
         <div className="bg-white dark:bg-slate-800 rounded-xl p-8 shadow-lg mb-8">
           <div className="space-y-6">
             <div>
-              <label htmlFor="amount" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <label htmlFor="amount" className="block text-sm font-medium text-slate-700 dark:text-white mb-1">
                 Amount
               </label>
               <div className="mt-1 flex rounded-md shadow-sm">
@@ -184,7 +333,7 @@ export default function PaymentLinkPage() {
             </div>
             
             <div>
-              <label htmlFor="currency" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <label htmlFor="currency" className="block text-sm font-medium text-slate-700 dark:text-white mb-1">
                 Currency
               </label>
               <select
@@ -203,7 +352,7 @@ export default function PaymentLinkPage() {
             </div>
             
             <div>
-              <label htmlFor="description" className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
+              <label htmlFor="description" className="block text-sm font-medium text-slate-700 dark:text-white mb-1">
                 Description (Optional)
               </label>
               <div className="mt-1">
@@ -243,12 +392,12 @@ export default function PaymentLinkPage() {
                 />
                 <button
                   onClick={copyToClipboard}
-                  className="bg-slate-200 text-black px-4 py-2 rounded-r-md hover:bg-slate-300"
+                  className="bg-slate-200 dark:bg-blue-600 text-black dark:text-white px-4 py-2 rounded-r-md hover:bg-slate-300 dark:hover:bg-blue-700"
                 >
                   {copied ? 'Copied!' : 'Copy'}
                 </button>
               </div>
-              <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">
+              <p className="mt-2 text-sm text-slate-500 dark:text-slate-100">
                 Share this link with your customers to receive payments.
               </p>
             </div>
@@ -261,17 +410,17 @@ export default function PaymentLinkPage() {
             <table className="min-w-full divide-y divide-slate-200 dark:divide-slate-700">
               <thead className="bg-slate-50 dark:bg-slate-700">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Date Created</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Amount</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Currency</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-slate-300 uppercase tracking-wider">Actions</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-white uppercase tracking-wider">Date Created</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-white uppercase tracking-wider">Amount</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-white uppercase tracking-wider">Currency</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-white uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 dark:text-white uppercase tracking-wider">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white dark:bg-slate-800 divide-y divide-slate-200 dark:divide-slate-700">
                 {recentLinks.length === 0 ? (
                   <tr>
-                    <td className="text-center py-4 text-slate-500" colSpan={5}>No payment links yet.</td>
+                    <td className="text-center py-4 text-slate-500 dark:text-white" colSpan={5}>No payment links yet.</td>
                   </tr>
                 ) : (
                   recentLinks.map((link, idx) => (
@@ -280,9 +429,19 @@ export default function PaymentLinkPage() {
                       <td className="px-6 py-4 whitespace-nowrap text-sm">{link.amount}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">{link.currency}</td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
-                          {link.status}
-                        </span>
+                        {link.status === 'Paid' ? (
+                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-white">
+                            Paid
+                          </span>
+                        ) : link.status === 'Pending' ? (
+                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-white">
+                            Pending
+                          </span>
+                        ) : (
+                          <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-white">
+                            {link.status}
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-900 dark:text-white">
                         <a href={link.link} target="_blank" rel="noopener noreferrer" >View</a>
