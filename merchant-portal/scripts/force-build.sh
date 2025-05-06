@@ -32,10 +32,10 @@ echo "⚙️ Setting up deployment configuration..."
 # Check if we're running on Netlify
 if [ "$NETLIFY" = "true" ]; then
   echo "📦 Using Netlify-specific build configuration..."
-  cp netlify-build.js next.config.js
+  cp ../backup-configs/netlify-build.js ../config/next.config.js
 else
   echo "📦 Using standard deployment configuration..."
-  cp next.config.deploy.js next.config.js
+  cp ../config/next.config.js ../next.config.js
 fi
 
 # Use the correct providers implementation based on build type
