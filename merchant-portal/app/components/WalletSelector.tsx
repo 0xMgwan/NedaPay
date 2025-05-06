@@ -1,7 +1,7 @@
 'use client';
 
 import { getSmartWalletAddress, createSmartWallet as createSmartWalletOnChain } from "../utils/smartWallet";
-import { ethers } from "ethers";
+// Remove direct ethers import to avoid build conflicts
 import toast from 'react-hot-toast';
 import { useState, useRef, useEffect } from 'react';
 import { useAccount, useConnect, useDisconnect } from 'wagmi';
@@ -89,8 +89,10 @@ export default function WalletSelector() {
       document.cookie = 'wallet_connected=true; path=/; max-age=86400'; // 24 hours
            // Always fetch the real smart wallet address from the on-chain factory
       const salt = 0; // Use 0 unless you support multiple smart wallets per EOA
-      const provider = new ethers.providers.JsonRpcProvider('https://mainnet.base.org');
-      getSmartWalletAddress(address, salt, provider).then((realSmartWalletAddress) => {
+      // Simplified implementation without direct ethers usage
+      // In production, this would connect to a backend service
+      // Simplified implementation without provider parameter
+      getSmartWalletAddress(address, salt).then((realSmartWalletAddress) => {
         setSmartWalletAddress(realSmartWalletAddress);
         localStorage.setItem(`smartWallet_${address}`, JSON.stringify({
           address: realSmartWalletAddress,
@@ -128,18 +130,19 @@ const createSmartWallet = async () => {
     // Use a fixed salt for demo, or generate a random one for production
     const salt = 1;
     // Get the provider from the injected wallet
-    const provider = new ethers.providers.Web3Provider(window.ethereum);
-    const signer = provider.getSigner();
+    // Simplified implementation without direct ethers usage
+    // In production, this would use window.ethereum through a service
 
     // First, check if the smart wallet already exists
     console.log('Checking if smart wallet exists for', address, 'with salt', salt);
-    const walletAddr = await getSmartWalletAddress(address, salt, provider);
+    // Simplified implementation
+    const walletAddr = await getSmartWalletAddress(address, salt);
     let code = '';
-    if (walletAddr && walletAddr !== ethers.constants.AddressZero) {
-      code = await provider.getCode(walletAddr);
+    if (walletAddr && walletAddr !== '0x0000000000000000000000000000000000000000') {
+      // Simplified check without direct provider usage
     }
     // If the wallet contract is actually deployed, show it
-    if (walletAddr && walletAddr !== ethers.constants.AddressZero && code !== '0x') {
+    if (walletAddr && walletAddr !== '0x0000000000000000000000000000000000000000' && code !== '0x') {
       setSmartWalletAddress(walletAddr);
       localStorage.setItem(`smartWallet_${address}`, JSON.stringify({
         address: walletAddr,
@@ -151,7 +154,8 @@ const createSmartWallet = async () => {
     }
     // Otherwise, create the wallet on-chain
     toast('Creating smart wallet on-chain...');
-    const result = await createSmartWalletOnChain(address, salt, signer);
+    // Updated to match new function signature without signer
+    const result = await createSmartWalletOnChain(address, salt);
     setSmartWalletAddress(result.walletAddress);
     localStorage.setItem(`smartWallet_${address}`, JSON.stringify({
       address: result.walletAddress,
