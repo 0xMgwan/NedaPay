@@ -40,6 +40,12 @@
     --card-text: #ffffff; /* White */
     --scrollbar-track: #1e1e1e; /* Dark gray */
   }
+  
+  /* Fix for dark mode select options */
+  select option {
+    background-color: #1e293b; /* slate-800 */
+    color: white;
+  }
 }
 
 body {

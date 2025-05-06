@@ -115,9 +115,9 @@ async function fetchIncomingPayments(merchantAddress: string) {
     "function symbol() view returns (string)"
   ];
   
-  // Reduce block range to improve performance
+  // Use a larger block range to ensure we capture more transactions
   const latestBlock = await provider.getBlockNumber();
-  const fromBlock = Math.max(latestBlock - 5000, 0); // Reduced from 10000 to 5000 blocks for faster loading
+  const fromBlock = Math.max(latestBlock - 20000, 0); // Increased to 20000 blocks to show more historical data
   
   let allTxs: any[] = [];
   const baseTokens = stablecoins.filter(c => c.chainId === 8453 && c.address && /^0x[a-fA-F0-9]{40}$/.test(c.address));
@@ -182,7 +182,7 @@ async function fetchIncomingPayments(merchantAddress: string) {
   
   // Sort by most recent
   allTxs.sort((a, b) => b.timestamp - a.timestamp);
-  const result = allTxs.slice(0, 20); // Increased from 10 to 20 for better data display
+  const result = allTxs.slice(0, 50); // Increased from 20 to 50 to show more historical transactions
   
   // Cache the results
   setCachedTransactions(merchantAddress, result);
@@ -1082,22 +1082,17 @@ const fetchRealBalances = async (walletAddress: string) => {
             {/* Daily Revenue Chart */}
             <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Daily Revenue</h3>
-                <div className="relative">
-                  <select
-                    value={selectedCurrency}
-                    onChange={(e) => setSelectedCurrency(e.target.value)}
-                    className="block w-full pl-3 pr-10 py-2 text-sm border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400"
-                  >
-                    <option value="all">All Currencies</option>
-                    {stablecoins
-                      .map(coin => (
-                        <option key={coin.baseToken} value={coin.baseToken}>
-                          {coin.flag} {coin.baseToken}
-                        </option>
-                      ))}
-                  </select>
-                </div>
+                <h3 className="text-lg font-bold text-slate-800 dark:text-white">Daily Revenue</h3>
+                <select 
+                  className="border rounded px-2 py-1 text-sm bg-white dark:bg-slate-700 text-slate-800 dark:text-white" 
+                  value={selectedCurrency} 
+                  onChange={(e) => setSelectedCurrency(e.target.value)}
+                >
+                  <option value="all" className="text-slate-800 dark:text-white">All Currencies</option>
+                  {stablecoins.map(coin => (
+                    <option key={coin.baseToken} value={coin.baseToken} className="text-slate-800 dark:text-white">{coin.flag} {coin.baseToken}</option>
+                  ))}
+                </select>
               </div>
               <div className="h-64">
                 <Line
@@ -1200,21 +1195,18 @@ const fetchRealBalances = async (walletAddress: string) => {
             <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Payment Methods</h3>
-                <div className="relative">
-                  <select
-                    value={selectedCurrency}
-                    onChange={(e) => setSelectedCurrency(e.target.value)}
-                    className="block w-full pl-3 pr-10 py-2 text-sm border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400"
-                  >
-                    <option value="all">All Currencies</option>
-                    {stablecoins
-                      .map(coin => (
-                        <option key={coin.baseToken} value={coin.baseToken}>
-                          {coin.flag} {coin.baseToken}
-                        </option>
-                      ))}
-                  </select>
-                </div>
+                <select
+                  value={selectedCurrency}
+                  onChange={(e) => setSelectedCurrency(e.target.value)}
+                  className="border rounded px-2 py-1 text-sm bg-white dark:bg-slate-700 text-slate-800 dark:text-white"
+                >
+                  <option value="all" className="text-slate-800 dark:text-white">All Currencies</option>
+                  {stablecoins.map(coin => (
+                    <option key={coin.baseToken} value={coin.baseToken} className="text-slate-800 dark:text-white">
+                      {coin.flag} {coin.baseToken}
+                    </option>
+                  ))}
+                </select>
               </div>
               <div className="h-64">
                 <Doughnut 
@@ -1255,21 +1247,18 @@ const fetchRealBalances = async (walletAddress: string) => {
                     </svg>
                     Recent Transactions
                   </h3>
-                  <div className="relative">
-                    <select
-                      value={selectedCurrency}
-                      onChange={(e) => setSelectedCurrency(e.target.value)}
-                      className="block w-full pl-3 pr-10 py-2 text-sm border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400"
-                    >
-                      <option value="all">All Currencies</option>
-                      {stablecoins
-                        .map(coin => (
-                          <option key={coin.baseToken} value={coin.baseToken}>
-                            {coin.flag} {coin.baseToken}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
+                  <select
+                    value={selectedCurrency}
+                    onChange={(e) => setSelectedCurrency(e.target.value)}
+                    className="border rounded px-2 py-1 text-sm bg-white dark:bg-slate-700 text-slate-800 dark:text-white"
+                  >
+                    <option value="all" className="text-slate-800 dark:text-white">All Currencies</option>
+                    {stablecoins.map(coin => (
+                      <option key={coin.baseToken} value={coin.baseToken} className="text-slate-800 dark:text-white">
+                        {coin.flag} {coin.baseToken}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
               

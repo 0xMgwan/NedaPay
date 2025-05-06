@@ -19,7 +19,7 @@ interface TransactionCache {
   address: string;
 }
 
-const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes in milliseconds
+const CACHE_EXPIRY = 2 * 60 * 1000; // 2 minutes in milliseconds - reduced to ensure fresher data
 
 export function getCachedTransactions(address: string): CachedTransaction[] | null {
   if (typeof window === 'undefined') return null;
