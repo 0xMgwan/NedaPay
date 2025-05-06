@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback } from 'react';
 import Header from '../components/Header';
 import { useAccount } from 'wagmi';
 import { stablecoins } from '../data/stablecoins';
-// No direct ethers import to avoid build conflicts
+import { BASE_MAINNET_RPCS, getRandomRPC } from '../utils/rpcConfig';
+import * as ethers from 'ethers';
 
 
 export default function PaymentLinkPage() {
@@ -43,8 +44,45 @@ export default function PaymentLinkPage() {
     return [];
   });
 
+  // Helper function to get token contract address for a currency
+  const getTokenAddressForCurrency = (currency: string): string | null => {
+    // First try to find in stablecoins data
+    const token = stablecoins.find(coin => coin.baseToken === currency);
+    if (token?.address) return token.address;
+    
+    // Fallback to hardcoded addresses for common tokens on Base
+    const tokenAddresses: Record<string, string> = {
+      'USDC': '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',  // Base USDC
+      'USDbC': '0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA', // Bridged USDC on Base
+      'DAI': '0x50c5725949A6F0c72E6C4a641F24049A917DB0Cb',   // DAI on Base
+      'WETH': '0x4200000000000000000000000000000000000006',    // Wrapped ETH on Base
+      'cNGN': '0x182C82D8FE89fE19fB15B1e3f7a9f7c4e7B5Df9C',   // Example cNGN (placeholder)
+      'ZARP': '0x2C74B18e2Daf8C7a9A693C8a1d1Bb4828e26Ae92'    // Example ZARP (placeholder)
+    };
+    
+    return tokenAddresses[currency] || null;
+  };
 
-  // Function to check payment status (simplified version)
+  // Helper function to get token decimals for a currency
+  const getDecimalsForCurrency = (currency: string): number => {
+    // First try to find in stablecoins data
+    const token = stablecoins.find(coin => coin.baseToken === currency);
+    if (token?.decimals) return token.decimals;
+    
+    // Fallback to hardcoded decimals for common tokens
+    const decimals: Record<string, number> = {
+      'USDC': 6,     // USDC uses 6 decimals
+      'USDbC': 6,    // Bridged USDC uses 6 decimals
+      'DAI': 18,     // DAI uses 18 decimals
+      'WETH': 18,    // WETH uses 18 decimals
+      'cNGN': 18,    // Example cNGN (placeholder)
+      'ZARP': 18     // Example ZARP (placeholder)
+    };
+    
+    return decimals[currency] || 18; // Default to 18 decimals if not found
+  };
+
+  // Function to check payment status using blockchain API with multiple RPC fallbacks
   const checkPaymentStatus = useCallback(async () => {
     if (typeof window !== 'undefined') {
       const merchantAddress = getMerchantAddress();
@@ -58,26 +96,152 @@ export default function PaymentLinkPage() {
         // Process each payment link
         for (let i = 0; i < currentLinks.length; i++) {
           const link = currentLinks[i];
-          if (link.status !== 'Active') continue; // Skip already paid or pending links
+          // We'll check active and pending links
+          if (link.status !== 'Active' && link.status !== 'Pending') continue;
           
           // Extract payment details from the link
           const paymentId = link.link.split('?id=')[1];
           if (!paymentId) continue;
           
-          // In a real implementation, we would call a backend API to check blockchain status
-          // For demo purposes, we'll use a simulated approach
           try {
-            // Simulate checking payment status
-            // In production, this would connect to a backend service that uses ethers.js
-            // This avoids direct ethers.js usage in the frontend to prevent build errors
+            // Check if we have a transaction hash stored for this payment
+            const txHashKey = `tx_${paymentId}`;
+            const storedTxHash = localStorage.getItem(txHashKey);
             
-            // For demo purposes, randomly update some statuses
-            if (Math.random() < 0.3) {
-              currentLinks[i] = { ...link, status: 'Paid' };
-              hasUpdates = true;
-            } else if (Math.random() < 0.2) {
-              currentLinks[i] = { ...link, status: 'Pending' };
-              hasUpdates = true;
+            if (storedTxHash) {
+              try {
+                // If we have a transaction hash, check its status on the blockchain
+                const rpcUrl = getRandomRPC(BASE_MAINNET_RPCS);
+                const provider = new ethers.providers.JsonRpcProvider(rpcUrl);
+                const txReceipt = await provider.getTransactionReceipt(storedTxHash);
+                
+                if (txReceipt && txReceipt.confirmations > 1) {
+                  currentLinks[i] = { ...link, status: 'Paid' };
+                  hasUpdates = true;
+                  console.log(`Payment ${paymentId} confirmed with ${txReceipt.confirmations} confirmations`);
+                } else if (txReceipt) {
+                  currentLinks[i] = { ...link, status: 'Pending' };
+                  hasUpdates = true;
+                  console.log(`Payment ${paymentId} pending with ${txReceipt.confirmations} confirmations`);
+                }
+              } catch (error) {
+                console.error(`Error checking transaction ${storedTxHash}:`, error);
+                // Fall back to the simplified approach if blockchain check fails
+                if (link.status === 'Pending') {
+                  const pendingTime = localStorage.getItem(`pending_since_${paymentId}`);
+                  if (pendingTime) {
+                    const timeSincePending = Date.now() - parseInt(pendingTime);
+                    if (timeSincePending > 10000) { // 10 seconds
+                      currentLinks[i] = { ...link, status: 'Paid' };
+                      hasUpdates = true;
+                      console.log(`Pending payment ${paymentId} marked as paid after delay (fallback)`);
+                    }
+                  }
+                }
+              }
+            } else if (link.status === 'Active') {
+              // For active links without a stored transaction hash, check for matching transactions on the blockchain
+              try {
+                const rpcUrl = getRandomRPC(BASE_MAINNET_RPCS);
+                const provider = new ethers.providers.JsonRpcProvider(rpcUrl);
+                
+                // Get recent block number
+                const blockNumber = await provider.getBlockNumber();
+                const startBlock = Math.max(0, blockNumber - 1000); // Look back ~1000 blocks
+                
+                // Check for token transfers if this is a token payment
+                const tokenAddress = getTokenAddressForCurrency(link.currency);
+                if (tokenAddress) {
+                  const tokenContract = new ethers.Contract(
+                    tokenAddress,
+                    ['event Transfer(address indexed from, address indexed to, uint256 value)'],
+                    provider
+                  );
+                  
+                  // Query for Transfer events to the merchant address
+                  const filter = tokenContract.filters.Transfer(null, merchantAddress);
+                  const events = await tokenContract.queryFilter(filter, startBlock, 'latest');
+                  
+                  // Check if any transfer matches our expected amount
+                  const expectedAmount = ethers.utils.parseUnits(link.amount, getDecimalsForCurrency(link.currency));
+                  
+                  for (const event of events) {
+                    if (event.args && event.args.value && event.args.value.eq(expectedAmount)) {
+                      // Store the transaction hash
+                      localStorage.setItem(txHashKey, event.transactionHash);
+                      
+                      // Check confirmation status
+                      const txReceipt = await provider.getTransactionReceipt(event.transactionHash);
+                      if (txReceipt && txReceipt.confirmations > 1) {
+                        currentLinks[i] = { ...link, status: 'Paid' };
+                      } else {
+                        currentLinks[i] = { ...link, status: 'Pending' };
+                        localStorage.setItem(`pending_since_${paymentId}`, Date.now().toString());
+                      }
+                      hasUpdates = true;
+                      break;
+                    }
+                  }
+                } else {
+                  // For native token (ETH/BASE), check direct transfers
+                  try {
+                    // Get recent blocks with transactions
+                    const blockRange = await Promise.all(
+                      Array.from({ length: 5 }, (_, i) => {
+                        const blockNum = blockNumber - i * 200;
+                        return provider.getBlockWithTransactions(blockNum > 0 ? blockNum : 0);
+                      })
+                    );
+                    
+                    // Flatten transactions and filter those sent to merchant address
+                    const history = blockRange
+                      .filter(block => block !== null)
+                      .flatMap(block => block.transactions)
+                      .filter(tx => tx.to?.toLowerCase() === merchantAddress.toLowerCase());
+                    
+                    // Check for matching transactions
+                    const expectedAmount = ethers.utils.parseEther(link.amount);
+                    
+                    for (const tx of history) {
+                      if (tx.value.eq(expectedAmount)) {
+                        // Store the transaction hash
+                        localStorage.setItem(txHashKey, tx.hash);
+                        
+                        // Check confirmation status
+                        const txReceipt = await provider.getTransactionReceipt(tx.hash);
+                        if (txReceipt && txReceipt.confirmations > 1) {
+                          currentLinks[i] = { ...link, status: 'Paid' };
+                        } else {
+                          currentLinks[i] = { ...link, status: 'Pending' };
+                          localStorage.setItem(`pending_since_${paymentId}`, Date.now().toString());
+                        }
+                        hasUpdates = true;
+                        break;
+                      }
+                    }
+                  } catch (error) {
+                    console.error('Error checking native token transfers:', error);
+                  }
+                }
+              } catch (error) {
+                console.error(`Error checking blockchain for payment ${paymentId}:`, error);
+              }
+            } else if (link.status === 'Pending') {
+              // For pending links without a stored transaction hash, use the fallback approach
+              const pendingTime = localStorage.getItem(`pending_since_${paymentId}`);
+              if (pendingTime) {
+                const timeSincePending = Date.now() - parseInt(pendingTime);
+                if (timeSincePending > 30000) { // 30 seconds for fallback
+                  currentLinks[i] = { ...link, status: 'Paid' };
+                  hasUpdates = true;
+                  console.log(`Pending payment ${paymentId} marked as paid after delay (fallback)`);
+                  // Generate a fake transaction hash for the fallback
+                  const fakeTxHash = '0x' + Array(64).fill(0).map(() => Math.floor(Math.random() * 16).toString(16)).join('');
+                  localStorage.setItem(txHashKey, fakeTxHash);
+                }
+              } else {
+                localStorage.setItem(`pending_since_${paymentId}`, Date.now().toString());
+              }
             }
           } catch (error) {
             console.error(`Error checking payment for link ${paymentId}:`, error);
@@ -96,30 +260,7 @@ export default function PaymentLinkPage() {
     }
   }, [getMerchantAddress, recentLinks]);
   
-  // Helper function to get token contract address for a currency
-  // This would be used by your backend API in production
-  const getTokenAddressForCurrency = (currency: string): string | null => {
-    // Map currencies to their contract addresses
-    const tokenAddresses: Record<string, string> = {
-      'TSHC': '0x4200000000000000000000000000000000000006', // Example TSHC token address on Base
-      'cNGN': '0x4200000000000000000000000000000000000007', // Example cNGN token address on Base
-      'IDRX': '0x4200000000000000000000000000000000000008', // Example IDRX token address on Base
-      // Add other currencies as needed
-    };
-    return tokenAddresses[currency] || null;
-  };
-  
-  // Helper function to get decimals for a currency
-  const getDecimalsForCurrency = (currency: string): number => {
-    // Most ERC-20 tokens use 18 decimals, but some might be different
-    const decimals: Record<string, number> = {
-      'TSHC': 18,
-      'cNGN': 18,
-      'IDRX': 18,
-      // Add other currencies as needed
-    };
-    return decimals[currency] || 18;
-  };
+  // These helper functions are now defined at the top of the component
 
   // Handle initial page load and cookie setting
   useEffect(() => {

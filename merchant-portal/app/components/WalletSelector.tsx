@@ -1,16 +1,19 @@
 'use client';
 
 import { getSmartWalletAddress, createSmartWallet as createSmartWalletOnChain } from "../utils/smartWallet";
-// Remove direct ethers import to avoid build conflicts
+import { BASE_MAINNET_RPCS, getRandomRPC } from "../utils/rpcConfig";
+import * as ethers from 'ethers';
 import toast from 'react-hot-toast';
 import { useState, useRef, useEffect } from 'react';
 import { useAccount, useConnect, useDisconnect } from 'wagmi';
 import { metaMask, coinbaseWallet, walletConnect } from 'wagmi/connectors';
 import { useRouter } from 'next/navigation';
+// Import base chain and use type assertions to fix compatibility issues
 import { base } from 'wagmi/chains';
 import { Name } from '@coinbase/onchainkit/identity';
-import { base as baseChain } from 'viem/chains';
 import BaseNameTest from './BaseNameTest';
+
+// Use the Base chain with type assertions where needed
 
 // Format address for display when no name is available
 function formatAddress(address: string | undefined): string {
@@ -89,10 +92,11 @@ export default function WalletSelector() {
       document.cookie = 'wallet_connected=true; path=/; max-age=86400'; // 24 hours
            // Always fetch the real smart wallet address from the on-chain factory
       const salt = 0; // Use 0 unless you support multiple smart wallets per EOA
-      // Simplified implementation without direct ethers usage
-      // In production, this would connect to a backend service
-      // Simplified implementation without provider parameter
-      getSmartWalletAddress(address, salt).then((realSmartWalletAddress) => {
+      // Connect to the blockchain using our RPC configuration
+      const rpcUrl = getRandomRPC(BASE_MAINNET_RPCS);
+      const provider = new ethers.providers.JsonRpcProvider(rpcUrl);
+      // Pass the provider to getSmartWalletAddress
+      getSmartWalletAddress(address, salt, provider).then((realSmartWalletAddress) => {
         setSmartWalletAddress(realSmartWalletAddress);
         localStorage.setItem(`smartWallet_${address}`, JSON.stringify({
           address: realSmartWalletAddress,
@@ -130,19 +134,22 @@ const createSmartWallet = async () => {
     // Use a fixed salt for demo, or generate a random one for production
     const salt = 1;
     // Get the provider from the injected wallet
-    // Simplified implementation without direct ethers usage
-    // In production, this would use window.ethereum through a service
+    // Use window.ethereum if available, otherwise use our RPC configuration
+    const provider = window.ethereum 
+      ? new ethers.providers.Web3Provider(window.ethereum)
+      : new ethers.providers.JsonRpcProvider(getRandomRPC(BASE_MAINNET_RPCS));
 
     // First, check if the smart wallet already exists
     console.log('Checking if smart wallet exists for', address, 'with salt', salt);
-    // Simplified implementation
-    const walletAddr = await getSmartWalletAddress(address, salt);
+    // Get the wallet address using our provider
+    const walletAddr = await getSmartWalletAddress(address, salt, provider);
     let code = '';
-    if (walletAddr && walletAddr !== '0x0000000000000000000000000000000000000000') {
-      // Simplified check without direct provider usage
+    if (walletAddr && walletAddr !== ethers.constants.AddressZero) {
+      // Check if the wallet contract is deployed
+      code = await provider.getCode(walletAddr);
     }
     // If the wallet contract is actually deployed, show it
-    if (walletAddr && walletAddr !== '0x0000000000000000000000000000000000000000' && code !== '0x') {
+    if (walletAddr && walletAddr !== ethers.constants.AddressZero && code !== '0x') {
       setSmartWalletAddress(walletAddr);
       localStorage.setItem(`smartWallet_${address}`, JSON.stringify({
         address: walletAddr,
@@ -178,11 +185,13 @@ const createSmartWallet = async () => {
     try {
       // Check if MetaMask is installed
       if (typeof window.ethereum !== 'undefined') {
-        // Create MetaMask connector
-        const metamaskConnector = metaMask();
-        await connect({ connector: metamaskConnector });
-        setShowOptions(false);
-        // Note: The redirect will happen in the useEffect when isConnected changes
+        try {
+          // Try to connect with MetaMask
+          const metaMaskConnector = metaMask();
+          await connect({ connector: metaMaskConnector });
+        } catch (error) {
+          console.error('Error connecting to MetaMask:', error);
+        }
       } else if (isMobile()) {
         // On mobile, open MetaMask deep link to this dapp
         const dappUrl = encodeURIComponent(window.location.href);
@@ -204,10 +213,9 @@ const createSmartWallet = async () => {
     setIsConnecting(true);
     try {
       const walletConnectConnector = walletConnect({
-        projectId: '0ba1867b1fc0af11b0cf14a0ec8e5b0f', // Replace with your WalletConnect Project ID
-        showQrModal: true,
-        // If required, add chainId: base.id,
+        projectId: 'b6c0c1f9f3a0c1f9f3a0c1f9f3a0c1f9'
       });
+      
       await connect({ connector: walletConnectConnector });
       setShowOptions(false);
       // Note: The redirect will happen in the useEffect when isConnected changes
@@ -231,8 +239,7 @@ const createSmartWallet = async () => {
       }
       // Create Coinbase Wallet connector (desktop or mobile in-app browser)
       const coinbaseConnector = coinbaseWallet({
-        appName: 'NEDA Pay Merchant',
-        chainId: 1 // Ethereum Mainnet
+        appName: 'NEDA Pay',
       });
       
       await connect({ connector: coinbaseConnector });
@@ -292,7 +299,7 @@ const createSmartWallet = async () => {
               <>
                 <Name 
                   address={address as `0x${string}`} 
-                  chain={baseChain}
+                  chain={base as any}
                 />
                 <span className="ml-1 text-xs text-gray-500">
                   ({formatAddress(address)})
@@ -339,7 +346,7 @@ const createSmartWallet = async () => {
                     <>
                       <Name 
                         address={address as `0x${string}`} 
-                        chain={baseChain}
+                        chain={base as any}
                       />
                     </>
                   ) : (
