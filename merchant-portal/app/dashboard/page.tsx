@@ -93,6 +93,18 @@ const processBalances = (balanceData: Record<string, string>, networkChainId?: n
 // Utility to fetch real incoming payments (ERC20 Transfer events) for all stablecoins on Base
 async function fetchIncomingPayments(merchantAddress: string) {
   if (!merchantAddress) return [];
+  
+  // Check cache first
+  const { getCachedTransactions, setCachedTransactions } = await import('../utils/transactionCache');
+  const cachedTransactions = getCachedTransactions(merchantAddress);
+  
+  // If we have cached transactions, use them
+  if (cachedTransactions) {
+    console.log('Using cached transactions for', merchantAddress);
+    return cachedTransactions;
+  }
+  
+  console.log('Fetching fresh transactions for', merchantAddress);
   const ethers = (await import('ethers')).ethers;
   // Use robust fallback provider logic
   const { getProvider } = await import('../utils/rpcProvider');
@@ -102,57 +114,80 @@ async function fetchIncomingPayments(merchantAddress: string) {
     "function decimals() view returns (uint8)",
     "function symbol() view returns (string)"
   ];
+  
+  // Reduce block range to improve performance
   const latestBlock = await provider.getBlockNumber();
-  const fromBlock = Math.max(latestBlock - 10000, 0); // last ~10000 blocks
+  const fromBlock = Math.max(latestBlock - 5000, 0); // Reduced from 10000 to 5000 blocks for faster loading
+  
   let allTxs: any[] = [];
-  for (const coin of stablecoins.filter(c => c.chainId === 8453 && c.address && /^0x[a-fA-F0-9]{40}$/.test(c.address))) {
-    const contract = new ethers.Contract(coin.address, ERC20_ABI, provider);
-    let logs;
-    let decimals;
+  const baseTokens = stablecoins.filter(c => c.chainId === 8453 && c.address && /^0x[a-fA-F0-9]{40}$/.test(c.address));
+  
+  // Process tokens in parallel for better performance
+  await Promise.all(baseTokens.map(async (coin) => {
     try {
-      // Try to fetch decimals, skip if fails (not a real ERC20)
-      decimals = await contract.decimals();
-    } catch (e) {
-      console.warn(`Skipping token ${coin.baseToken} at ${coin.address}: decimals() call failed.`);
-      continue;
-    }
-    try {
+      const contract = new ethers.Contract(coin.address, ERC20_ABI, provider);
+      
+      // Fetch decimals
+      let decimals;
+      try {
+        decimals = await contract.decimals();
+      } catch (e) {
+        console.warn(`Skipping token ${coin.baseToken} at ${coin.address}: decimals() call failed.`);
+        return;
+      }
+      
+      // Fetch transfer events
       const { paginatedQueryFilter } = await import('../utils/paginatedQueryFilter');
-      logs = await paginatedQueryFilter(
+      const logs = await paginatedQueryFilter(
         contract,
         contract.filters.Transfer(null, merchantAddress),
         fromBlock,
         latestBlock
       );
-    } catch (e) {
-      console.warn(`Skipping token ${coin.baseToken} at ${coin.address}: paginatedQueryFilter failed.`);
-      continue;
-    }
-    const symbol = coin.baseToken;
-    for (const log of logs) {
-      const { transactionHash, args, blockNumber } = log;
-      if (!args) continue;
-      const from = args.from;
-      const to = args.to;
-      const value = ethers.utils.formatUnits(args.value, decimals);
-      const block = await provider.getBlock(blockNumber);
-      const date = new Date(block.timestamp * 1000);
-      allTxs.push({
-        id: transactionHash,
-        shortId: transactionHash.slice(0, 6) + '...' + transactionHash.slice(-4),
-        date: date.toISOString().replace('T', ' ').slice(0, 16),
-        amount: value,
-        currency: symbol,
-        status: 'Completed',
-        sender: from,
-        senderShort: from.slice(0, 6) + '...' + from.slice(-4),
-        blockExplorerUrl: `https://basescan.org/tx/${transactionHash}`
+      
+      // Process logs
+      const symbol = coin.baseToken;
+      const txPromises = logs.map(async (log) => {
+        const { transactionHash, args, blockNumber } = log;
+        if (!args) return null;
+        
+        const from = args.from;
+        const to = args.to;
+        const value = ethers.utils.formatUnits(args.value, decimals);
+        
+        // Get block details
+        const block = await provider.getBlock(blockNumber);
+        const date = new Date(block.timestamp * 1000);
+        
+        return {
+          id: transactionHash,
+          shortId: transactionHash.slice(0, 6) + '...' + transactionHash.slice(-4),
+          date: date.toISOString().replace('T', ' ').slice(0, 16),
+          amount: value,
+          currency: symbol,
+          status: 'Completed',
+          sender: from,
+          senderShort: from.slice(0, 6) + '...' + from.slice(-4),
+          blockExplorerUrl: `https://basescan.org/tx/${transactionHash}`,
+          timestamp: block.timestamp // For sorting
+        };
       });
+      
+      const transactions = (await Promise.all(txPromises)).filter(tx => tx !== null) as any[];
+      allTxs = [...allTxs, ...transactions];
+    } catch (e) {
+      console.warn(`Error processing token ${coin.baseToken}:`, e);
     }
-  }
+  }));
+  
   // Sort by most recent
-  allTxs.sort((a, b) => b.date.localeCompare(a.date));
-  return allTxs.slice(0, 10); // Limit to 10 most recent
+  allTxs.sort((a, b) => b.timestamp - a.timestamp);
+  const result = allTxs.slice(0, 20); // Increased from 10 to 20 for better data display
+  
+  // Cache the results
+  setCachedTransactions(merchantAddress, result);
+  
+  return result;
 }
 
 // Function to get payment methods data for charts (per stablecoin, using transactions)
@@ -353,6 +388,8 @@ export default function MerchantDashboard() {
   const [transactions, setTransactions] = useState<any[]>([]);
   const [isTransactionLoading, setIsTransactionLoading] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  // Currency filter state
+  const [selectedCurrency, setSelectedCurrency] = useState<string>('all');
 
   // Prepare balances for Balances component
   const { processedBalances } = processBalances(balances);
@@ -436,23 +473,49 @@ export default function MerchantDashboard() {
     }
   }, [isConnected, selectedWalletAddress, connector, selectedWalletType, smartWalletAddress, address]);
 
-  // Fetch real incoming payments
+  // Fetch real incoming payments with optimized loading
   useEffect(() => {
-    if (isConnected && selectedWalletAddress) {
+    let isMounted = true;
+    
+    const fetchData = async () => {
+      if (!isConnected || !selectedWalletAddress) return;
+      
+      // Show loading state
       setIsTransactionLoading(true);
-      fetchIncomingPayments(selectedWalletAddress).then(async (txs) => {
-        setTransactions(txs);
-        setIsTransactionLoading(false);
-        // Automatically save new transactions to the database
+      
+      try {
+        // Check if we have cached data first
+        const { getCachedTransactions } = await import('../utils/transactionCache');
+        const cachedTxs = getCachedTransactions(selectedWalletAddress);
+        
+        // If we have cached data, show it immediately while we fetch fresh data
+        if (cachedTxs && cachedTxs.length > 0 && isMounted) {
+          setTransactions(cachedTxs);
+          // Keep loading indicator on to show we're refreshing in the background
+        }
+        
+        // Fetch fresh data
+        const txs = await fetchIncomingPayments(selectedWalletAddress);
+        
+        // Update state if component is still mounted
+        if (isMounted) {
+          setTransactions(txs);
+          setIsTransactionLoading(false);
+        }
+        
+        // Save transactions to database in the background
         if (txs.length > 0) {
           // Fetch existing transactions from the DB for this merchant
           const res = await fetch(`/api/transactions?merchantId=${selectedWalletAddress}`);
           const dbTxs = res.ok ? await res.json() : [];
           const dbHashes = new Set(dbTxs.map((t: any) => t.txHash));
+          
           // Only POST transactions that aren't already in DB
-          for (const tx of txs) {
-            if (!dbHashes.has(tx.id)) {
-              await fetch('/api/transactions', {
+          // Use Promise.all to parallelize the requests
+          const newTxs = txs.filter(tx => !dbHashes.has(tx.id));
+          if (newTxs.length > 0) {
+            await Promise.all(newTxs.map(tx => {
+              return fetch('/api/transactions', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -464,11 +527,23 @@ export default function MerchantDashboard() {
                   txHash: tx.id,
                 })
               });
-            }
+            }));
           }
         }
-      });
-    }
+      } catch (error) {
+        console.error('Error fetching transactions:', error);
+        if (isMounted) {
+          setIsTransactionLoading(false);
+        }
+      }
+    };
+    
+    fetchData();
+    
+    // Cleanup function to prevent state updates on unmounted component
+    return () => {
+      isMounted = false;
+    };
   }, [address, isConnected, selectedWalletType, selectedWalletAddress, connector]);
 
   // --- Live Blockchain Event Listeners for Instant Updates ---
@@ -743,12 +818,22 @@ const fetchRealBalances = async (walletAddress: string) => {
       <div className="flex-grow">
         <div className="container mx-auto max-w-6xl px-4 py-12">
           <div className="mb-8">
-            <h1 className="text-3xl font-bold mb-2 text-slate-800 dark:text-slate-100">
-              Merchant Dashboard
-            </h1>
-            <p className="text-slate-600 dark:text-slate-300 text-base">
-              Manage your stablecoin payments and track business performance
-            </p>
+            <div className="flex justify-between items-center">
+              <div>
+                <h1 className="text-3xl font-bold mb-2 text-slate-800 dark:text-slate-100">
+                  Merchant Dashboard
+                </h1>
+                <p className="text-slate-600 dark:text-slate-300 text-base">
+                  Manage your stablecoin payments and track business performance
+                </p>
+              </div>
+              {isTransactionLoading && (
+                <div className="flex items-center space-x-2 bg-blue-50 dark:bg-blue-900/30 px-4 py-2 rounded-lg">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
+                  <span className="text-sm text-blue-600 dark:text-blue-300">Loading data...</span>
+                </div>
+              )}
+            </div>
             
             {/* Welcome Message with Animation */}
             <div className="mt-4 p-4 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 rounded-lg shadow-lg transform transition-all duration-500 hover:scale-102 hover:shadow-xl">
@@ -764,7 +849,7 @@ const fetchRealBalances = async (walletAddress: string) => {
                       <span className="inline-flex items-center">
                         <Name 
                           address={selectedWalletAddress as `0x${string}`} 
-                          chain={base}
+                          chain={base as any}
                         />
                         !
                       </span>
@@ -996,10 +1081,27 @@ const fetchRealBalances = async (walletAddress: string) => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
             {/* Daily Revenue Chart */}
             <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg">
-              <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Daily Revenue</h3>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Daily Revenue</h3>
+                <div className="relative">
+                  <select
+                    value={selectedCurrency}
+                    onChange={(e) => setSelectedCurrency(e.target.value)}
+                    className="block w-full pl-3 pr-10 py-2 text-sm border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400"
+                  >
+                    <option value="all">All Currencies</option>
+                    {stablecoins
+                      .map(coin => (
+                        <option key={coin.baseToken} value={coin.baseToken}>
+                          {coin.flag} {coin.baseToken}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
               <div className="h-64">
                 <Line
-  data={getMultiStablecoinDailyRevenueData(transactions)}
+  data={getMultiStablecoinDailyRevenueData(selectedCurrency === 'all' ? transactions : transactions.filter(tx => tx.currency === selectedCurrency))}
   options={{
     responsive: true,
     maintainAspectRatio: false,
@@ -1096,10 +1198,27 @@ const fetchRealBalances = async (walletAddress: string) => {
             
             {/* Payment Methods Chart */}
             <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-lg">
-              <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">Payment Methods</h3>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Payment Methods</h3>
+                <div className="relative">
+                  <select
+                    value={selectedCurrency}
+                    onChange={(e) => setSelectedCurrency(e.target.value)}
+                    className="block w-full pl-3 pr-10 py-2 text-sm border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400"
+                  >
+                    <option value="all">All Currencies</option>
+                    {stablecoins
+                      .map(coin => (
+                        <option key={coin.baseToken} value={coin.baseToken}>
+                          {coin.flag} {coin.baseToken}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              </div>
               <div className="h-64">
                 <Doughnut 
-                  data={getPaymentMethodsData(transactions)} 
+                  data={getPaymentMethodsData(selectedCurrency === 'all' ? transactions : transactions.filter(tx => tx.currency === selectedCurrency))} 
                   options={{ 
                     responsive: true, 
                     maintainAspectRatio: false,
@@ -1129,12 +1248,29 @@ const fetchRealBalances = async (walletAddress: string) => {
             {/* Recent Transactions */}
             <div className="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl shadow-lg overflow-hidden transition-all duration-300 transform hover:shadow-xl">
               <div className="p-6 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-indigo-900/30 dark:to-purple-900/30">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
-                  <svg className="w-5 h-5 mr-2 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
-                  </svg>
-                  Recent Transactions
-                </h3>
+                <div className="flex justify-between items-center">
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+                    <svg className="w-5 h-5 mr-2 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                    </svg>
+                    Recent Transactions
+                  </h3>
+                  <div className="relative">
+                    <select
+                      value={selectedCurrency}
+                      onChange={(e) => setSelectedCurrency(e.target.value)}
+                      className="block w-full pl-3 pr-10 py-2 text-sm border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:focus:ring-blue-400 dark:focus:border-blue-400"
+                    >
+                      <option value="all">All Currencies</option>
+                      {stablecoins
+                        .map(coin => (
+                          <option key={coin.baseToken} value={coin.baseToken}>
+                            {coin.flag} {coin.baseToken}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                </div>
               </div>
               
               <div className="overflow-x-auto">
@@ -1180,7 +1316,7 @@ const fetchRealBalances = async (walletAddress: string) => {
                           </td>
                         </tr>
                       ))
-                    ) : transactions.length === 0 ? (
+                    ) : (selectedCurrency === 'all' ? transactions : transactions.filter(tx => tx.currency === selectedCurrency)).length === 0 ? (
                       <tr>
                         <td colSpan={5} className="px-6 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
                           <div className="flex flex-col items-center justify-center space-y-3">
@@ -1198,7 +1334,7 @@ const fetchRealBalances = async (walletAddress: string) => {
                         </td>
                       </tr>
                     ) : (
-                      transactions.map((tx, index) => (
+                      (selectedCurrency === 'all' ? transactions : transactions.filter(tx => tx.currency === selectedCurrency)).map((tx, index) => (
                         <tr 
                           key={tx.id} 
                           className={`hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors duration-150 ${index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-slate-50 dark:bg-gray-750'}`}
