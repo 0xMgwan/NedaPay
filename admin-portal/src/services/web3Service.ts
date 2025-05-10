@@ -12,6 +12,10 @@ import {
 import TSHC_ABI from '../contracts/abis/TSHC.json';
 import RESERVE_ABI from '../contracts/abis/Reserve.json';
 
+// Role management constants
+const MINTER_ROLE = '0x9f2df0fed2c77648de5860a4cc508cd0818c85b8b8a1ab4ceeef8d981c8956a6'; // keccak256("MINTER_ROLE")
+const ADMIN_ROLE = '0xa49807205ce4d355092ef5a8a18f56e8913cf4a201fbe287825b095693c21775'; // keccak256("ADMIN_ROLE")
+
 // Contract addresses - these would come from environment variables in production
 const CONTRACT_ADDRESSES = {
   // Base Sepolia testnet addresses
@@ -570,6 +574,67 @@ class Web3Service {
     
     if (this.reserveContract) {
       this.reserveContract.removeAllListeners();
+    }
+  }
+
+  /**
+   * Get the MINTER_ROLE bytes32 value
+   */
+  async getMinterRole(): Promise<string> {
+    return MINTER_ROLE;
+  }
+
+  /**
+   * Check if an address has a specific role
+   */
+  async hasRole(role: string, address: string): Promise<boolean> {
+    if (!this.isInitialized || !this.tshcContract) {
+      throw new Error('Web3 service not initialized');
+    }
+
+    try {
+      return await this.tshcContract.hasRole(role, address);
+    } catch (error) {
+      console.error('Error checking role:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Grant a role to an address
+   */
+  async grantRole(role: string, address: string): Promise<TransactionResponse> {
+    if (!this.isInitialized || !this.tshcContract || !this.signer) {
+      throw new Error('Web3 service not initialized or wallet not connected');
+    }
+
+    try {
+      // Connect with signer to send transactions
+      const tshcWithSigner = this.tshcContract.connect(this.signer);
+      // Use the function interface to call the contract method
+      return await tshcWithSigner.getFunction('grantRole')(role, address);
+    } catch (error) {
+      console.error('Error granting role:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Revoke a role from an address
+   */
+  async revokeRole(role: string, address: string): Promise<TransactionResponse> {
+    if (!this.isInitialized || !this.tshcContract || !this.signer) {
+      throw new Error('Web3 service not initialized or wallet not connected');
+    }
+
+    try {
+      // Connect with signer to send transactions
+      const tshcWithSigner = this.tshcContract.connect(this.signer);
+      // Use the function interface to call the contract method
+      return await tshcWithSigner.getFunction('revokeRole')(role, address);
+    } catch (error) {
+      console.error('Error revoking role:', error);
+      throw error;
     }
   }
 }

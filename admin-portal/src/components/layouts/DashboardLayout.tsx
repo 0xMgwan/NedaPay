@@ -48,6 +48,7 @@ const menuItems = [
   { text: 'Transactions', icon: <TransactionsIcon />, path: '/transactions' },
   { text: 'KYC Management', icon: <KycIcon />, path: '/kyc' },
   { text: 'Mint & Burn', icon: <MintIcon />, path: '/mint-burn' },
+  { text: 'Role Management', icon: <KycIcon />, path: '/role-management' },
 ];
 
 const DashboardLayout: React.FC = () => {

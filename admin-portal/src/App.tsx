@@ -14,6 +14,7 @@ import Reserves from './pages/Reserves';
 import Transactions from './pages/Transactions';
 import KycManagement from './pages/KycManagement';
 import MintBurn from './pages/MintBurn';
+import RoleManagement from './pages/RoleManagement';
 import Login from './pages/Login';
 import ForgotPassword from './pages/ForgotPassword';
 import NotFound from './pages/NotFound';
@@ -50,6 +51,7 @@ function App() {
           <Route path="transactions" element={<Transactions />} />
           <Route path="kyc" element={<KycManagement />} />
           <Route path="mint-burn" element={<MintBurn />} />
+          <Route path="role-management" element={<RoleManagement />} />
         </Route>
         
         {/* 404 route */}
