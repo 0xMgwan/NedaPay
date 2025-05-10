@@ -68,15 +68,21 @@ class Web3Service {
         
         // Request account access with explicit user confirmation
         if (forcePrompt) {
-          // This will always trigger the wallet popup
-          await window.ethereum.request({
-            method: 'wallet_requestPermissions',
-            params: [{ eth_accounts: {} }]
-          });
+          try {
+            // Try the wallet_requestPermissions method first (works in MetaMask)
+            await window.ethereum.request({
+              method: 'wallet_requestPermissions',
+              params: [{ eth_accounts: {} }]
+            });
+          } catch (permissionError) {
+            console.log('wallet_requestPermissions not supported, falling back to eth_requestAccounts');
+            // Fallback to standard eth_requestAccounts if wallet_requestPermissions is not supported
+            await window.ethereum.request({ method: 'eth_requestAccounts' });
+          }
+        } else {
+          // Standard account request without forcing prompt
+          await window.ethereum.request({ method: 'eth_requestAccounts' });
         }
-        
-        // Now request accounts (this will use the permission granted above)
-        await window.ethereum.request({ method: 'eth_requestAccounts' });
         
         this.signer = await this.provider.getSigner();
         

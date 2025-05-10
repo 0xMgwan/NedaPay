@@ -58,29 +58,46 @@ export const Web3Provider: React.FC<Web3ProviderProps> = ({ children }) => {
       setIsConnecting(true);
       setError(null);
       
-      const success = await web3Service.initialize();
-      
-      if (success) {
-        setIsInitialized(true);
-        
-        // Get account
-        const account = await web3Service.getAccount();
-        setAccount(account);
-        
-        // Check network
-        const correctNetwork = await web3Service.isCorrectNetwork();
-        setIsCorrectNetwork(correctNetwork);
-        
-        // If on correct network, fetch data
-        if (correctNetwork) {
-          await refreshData();
-        }
-        
-        return true;
+      // Check if window.ethereum exists
+      if (!window.ethereum) {
+        setError('No Ethereum wallet detected. Please install MetaMask or another compatible wallet.');
+        return false;
       }
       
-      return false;
+      // Try to initialize with better error handling
+      try {
+        const success = await web3Service.initialize();
+        
+        if (success) {
+          setIsInitialized(true);
+          
+          // Get account
+          const account = await web3Service.getAccount();
+          setAccount(account);
+          
+          // Check network
+          const correctNetwork = await web3Service.isCorrectNetwork();
+          setIsCorrectNetwork(correctNetwork);
+          
+          // If on correct network, fetch data
+          if (correctNetwork) {
+            await refreshData();
+          } else {
+            setError(`Please switch to ${process.env.REACT_APP_NETWORK_NAME || 'the correct network'}`);
+          }
+          
+          return true;
+        } else {
+          setError('Failed to initialize wallet connection. Please try again.');
+          return false;
+        }
+      } catch (initError: any) {
+        console.error('Wallet initialization error:', initError);
+        setError(initError.message || 'Error connecting to wallet. Please try again.');
+        return false;
+      }
     } catch (err: any) {
+      console.error('Wallet connection error:', err);
       setError(err.message || 'Failed to connect wallet');
       return false;
     } finally {
