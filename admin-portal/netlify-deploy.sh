@@ -11,8 +11,17 @@ echo "Creating _redirects file for SPA routing..."
 mkdir -p public
 echo "/* /index.html 200" > public/_redirects
 
-# Install dependencies with legacy peer deps to handle TypeScript conflicts
-echo "Installing dependencies with --legacy-peer-deps..."
+# Fix TypeScript version to be compatible with react-scripts
+echo "Fixing TypeScript version..."
+npm uninstall typescript
+npm install typescript@4.9.5 --save-exact --legacy-peer-deps
+
+# Install ajv explicitly to resolve the missing module issue
+echo "Installing ajv dependency..."
+npm install ajv@latest --save --legacy-peer-deps
+
+# Install all dependencies with legacy peer deps to handle conflicts
+echo "Installing all dependencies with --legacy-peer-deps..."
 npm install --legacy-peer-deps
 
 # Build the application
