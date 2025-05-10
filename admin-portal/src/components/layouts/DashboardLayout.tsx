@@ -295,7 +295,7 @@ const DashboardLayout: React.FC = () => {
               style={{ height: 40 }} 
               onError={(e) => {
                 const target = e.target as HTMLImageElement;
-                target.src = 'https://via.placeholder.com/120x40?text=NEDA+Pay';
+                target.src = '/images/neda-pay-logo-small.svg';
               }}
             />
           </Box>

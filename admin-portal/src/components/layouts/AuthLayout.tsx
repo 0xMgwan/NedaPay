@@ -79,7 +79,7 @@ const AuthLayout: React.FC<AuthLayoutProps> = ({ children }) => {
               style={{ height: 60, marginBottom: 16 }} 
               onError={(e) => {
                 const target = e.target as HTMLImageElement;
-                target.src = 'https://via.placeholder.com/180x60?text=NEDA+Pay';
+                target.src = '/images/neda-pay-logo.svg';
               }}
             />
             <Typography component="h1" variant="h5" color="primary" fontWeight="bold">
