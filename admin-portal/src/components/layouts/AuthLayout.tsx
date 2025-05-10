@@ -74,13 +74,9 @@ const AuthLayout: React.FC<AuthLayoutProps> = ({ children }) => {
         >
           <Box sx={{ mb: 4, textAlign: 'center' }}>
             <img 
-              src="/logo.png" 
+              src="/images/neda-pay-logo.svg" 
               alt="NEDA Pay Logo" 
-              style={{ height: 60, marginBottom: 16 }} 
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                target.src = '/images/neda-pay-logo.svg';
-              }}
+              style={{ height: 60, width: 'auto', marginBottom: 16 }} 
             />
             <Typography component="h1" variant="h5" color="primary" fontWeight="bold">
               Admin Portal

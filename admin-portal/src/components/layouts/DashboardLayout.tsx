@@ -290,13 +290,9 @@ const DashboardLayout: React.FC = () => {
         <Box sx={{ overflow: 'auto', mt: 2 }}>
           <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
             <img 
-              src="/logo.png" 
+              src="/images/neda-pay-logo.svg" 
               alt="NEDA Pay Logo" 
-              style={{ height: 40 }} 
-              onError={(e) => {
-                const target = e.target as HTMLImageElement;
-                target.src = '/images/neda-pay-logo-small.svg';
-              }}
+              style={{ height: 40, width: 'auto' }} 
             />
           </Box>
           <Divider />
