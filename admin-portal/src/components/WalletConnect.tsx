@@ -5,12 +5,14 @@ import {
   Typography, 
   Chip, 
   CircularProgress,
-  Tooltip
+  Tooltip,
+  IconButton
 } from '@mui/material';
 import { 
   AccountBalanceWallet as WalletIcon,
   Check as CheckIcon,
-  Warning as WarningIcon
+  Warning as WarningIcon,
+  Logout as LogoutIcon
 } from '@mui/icons-material';
 import { useWeb3 } from '../contexts/Web3Context';
 
@@ -22,7 +24,8 @@ const WalletConnect: React.FC = () => {
     isCorrectNetwork,
     connectWallet,
     switchNetwork,
-    error
+    error,
+    disconnectWallet
   } = useWeb3();
 
   // Format account address for display
@@ -38,6 +41,11 @@ const WalletConnect: React.FC = () => {
   // Handle switch network button click
   const handleSwitchNetwork = async () => {
     await switchNetwork();
+  };
+
+  // Handle disconnect wallet button click
+  const handleDisconnectWallet = async () => {
+    await disconnectWallet();
   };
 
   return (
@@ -72,7 +80,22 @@ const WalletConnect: React.FC = () => {
               label={formatAddress(account)}
               color="primary"
               variant="outlined"
+              sx={{ 
+                color: theme => theme.palette.mode === 'light' ? theme.palette.primary.main : 'inherit',
+                borderColor: theme => theme.palette.mode === 'light' ? theme.palette.primary.main : 'inherit'
+              }}
             />
+          </Tooltip>
+          
+          <Tooltip title="Disconnect wallet">
+            <IconButton 
+              onClick={handleDisconnectWallet}
+              color="primary"
+              size="small"
+              sx={{ ml: 1 }}
+            >
+              <LogoutIcon />
+            </IconButton>
           </Tooltip>
         </>
       ) : (

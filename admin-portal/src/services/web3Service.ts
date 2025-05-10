@@ -34,6 +34,7 @@ const MOCK_DATA = {
   totalSupply: '10000000',
   collateralizationRatio: '102.5',
   transactions: [
+    { id: 1746889069164, type: 'Mint', amount: 750000, date: '2025-04-10', organization: 'ABSA Bank', reason: 'New partnership' },
     { id: 1, type: 'Mint', amount: 1000000, date: '2025-04-01', organization: 'Bank of Tanzania', reason: 'Initial issuance' },
     { id: 2, type: 'Burn', amount: 250000, date: '2025-04-03', organization: 'CRDB Bank', reason: 'Redemption' },
     { id: 3, type: 'Mint', amount: 500000, date: '2025-04-05', organization: 'NMB Bank', reason: 'Expansion' },
@@ -57,14 +58,24 @@ class Web3Service {
 
   /**
    * Initialize the Web3 service
+   * @param forcePrompt If true, always prompt the user to connect, even if already connected
    */
-  async initialize(): Promise<boolean> {
+  async initialize(forcePrompt: boolean = true): Promise<boolean> {
     try {
       // Check if window.ethereum is available (MetaMask or other wallet)
       if (window.ethereum) {
         this.provider = new BrowserProvider(window.ethereum);
         
-        // Request account access
+        // Request account access with explicit user confirmation
+        if (forcePrompt) {
+          // This will always trigger the wallet popup
+          await window.ethereum.request({
+            method: 'wallet_requestPermissions',
+            params: [{ eth_accounts: {} }]
+          });
+        }
+        
+        // Now request accounts (this will use the permission granted above)
         await window.ethereum.request({ method: 'eth_requestAccounts' });
         
         this.signer = await this.provider.getSigner();
@@ -127,6 +138,29 @@ class Web3Service {
    */
   isConnected(): boolean {
     return this.isInitialized;
+  }
+
+  /**
+   * Disconnect wallet and reset state
+   */
+  async disconnect(): Promise<boolean> {
+    try {
+      // Reset all state
+      this.provider = null;
+      this.signer = null;
+      this.tshcContract = null;
+      this.reserveContract = null;
+      this.isInitialized = false;
+      this.useMockData = false;
+      
+      // Remove event listeners
+      this.removeAllListeners();
+      
+      return true;
+    } catch (error) {
+      console.error('Error disconnecting wallet:', error);
+      return false;
+    }
   }
 
   /**

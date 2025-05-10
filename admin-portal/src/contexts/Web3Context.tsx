@@ -9,6 +9,7 @@ interface Web3ContextType {
   totalSupply: string;
   collateralizationRatio: string;
   connectWallet: () => Promise<boolean>;
+  disconnectWallet: () => Promise<boolean>;
   switchNetwork: () => Promise<boolean>;
   refreshData: () => Promise<void>;
   mintTokens: (to: string, amount: string) => Promise<any>;
@@ -27,6 +28,7 @@ export const Web3Context = createContext<Web3ContextType>({
   totalSupply: '0',
   collateralizationRatio: '0',
   connectWallet: async () => false,
+  disconnectWallet: async () => false,
   switchNetwork: async () => false,
   refreshData: async () => {},
   mintTokens: async () => ({}),
@@ -83,6 +85,26 @@ export const Web3Provider: React.FC<Web3ProviderProps> = ({ children }) => {
       return false;
     } finally {
       setIsConnecting(false);
+    }
+  };
+
+  // Disconnect wallet function
+  const disconnectWallet = async (): Promise<boolean> => {
+    try {
+      setError(null);
+      await web3Service.disconnect();
+      
+      // Reset state
+      setIsInitialized(false);
+      setAccount(null);
+      setIsCorrectNetwork(false);
+      setTotalSupply('0');
+      setCollateralizationRatio('0');
+      
+      return true;
+    } catch (err: any) {
+      setError(err.message || 'Failed to disconnect wallet');
+      return false;
     }
   };
 
@@ -282,25 +304,24 @@ export const Web3Provider: React.FC<Web3ProviderProps> = ({ children }) => {
   }, [isInitialized, isCorrectNetwork]);
 
   return (
-    <Web3Context.Provider
-      value={{
-        isInitialized,
-        isConnecting,
-        account,
-        isCorrectNetwork,
-        totalSupply,
-        collateralizationRatio,
-        connectWallet,
-        switchNetwork,
-        refreshData,
-        mintTokens,
-        burnTokens,
-        createBatchMint,
-        createBatchBurn,
-        approveBatchOperation,
-        error,
-      }}
-    >
+    <Web3Context.Provider value={{
+      isInitialized,
+      isConnecting,
+      account,
+      isCorrectNetwork,
+      totalSupply,
+      collateralizationRatio,
+      connectWallet,
+      disconnectWallet,
+      switchNetwork,
+      refreshData,
+      mintTokens,
+      burnTokens,
+      createBatchMint,
+      createBatchBurn,
+      approveBatchOperation,
+      error
+    }}>
       {children}
     </Web3Context.Provider>
   );
