@@ -1,0 +1,15 @@
+[build]
+  base = "admin-portal"
+  publish = "build"
+  command = "npm run netlify-build"
+
+[build.environment]
+  NODE_VERSION = "18"
+  NPM_FLAGS = "--legacy-peer-deps"
+  CI = "false"
+
+# Handle SPA routing
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
