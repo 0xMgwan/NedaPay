@@ -530,6 +530,7 @@ const MintBurn: React.FC = () => {
                   <MenuItem value="Bank of Tanzania">Bank of Tanzania</MenuItem>
                   <MenuItem value="NEDA Pay">NEDA Pay</MenuItem>
                   <MenuItem value="Ministry of Finance">Ministry of Finance</MenuItem>
+                  <MenuItem value="ABSA Bank">ABSA Bank</MenuItem>
                 </Select>
               </FormControl>
               <TextField 
@@ -609,6 +610,7 @@ const MintBurn: React.FC = () => {
                   <MenuItem value="Bank of Tanzania">Bank of Tanzania</MenuItem>
                   <MenuItem value="NEDA Pay">NEDA Pay</MenuItem>
                   <MenuItem value="Ministry of Finance">Ministry of Finance</MenuItem>
+                  <MenuItem value="ABSA Bank">ABSA Bank</MenuItem>
                 </Select>
               </FormControl>
               <TextField 

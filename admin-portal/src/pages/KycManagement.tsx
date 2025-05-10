@@ -42,6 +42,16 @@ import {
 // Mock KYC data
 const mockKycData = [
   { 
+    id: 2, 
+    name: 'ABSA Bank', 
+    type: 'Financial Institution', 
+    submissionDate: '2025-04-05', 
+    status: 'Rejected', 
+    verifiedBy: 'Maria Johnson',
+    verificationDate: '2025-04-06',
+    documents: 3
+  },
+  { 
     id: 1, 
     name: 'CRDB Bank', 
     type: 'Financial Institution', 
